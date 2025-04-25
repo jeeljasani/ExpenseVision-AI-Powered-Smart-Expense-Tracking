@@ -12,8 +12,8 @@ ExpenseVision is an end-to-end cloud-native application that simplifies and auto
 - **☁️ Fully Serverless & Scalable** – Designed using AWS Lambda, S3, DynamoDB, SQS, and CloudFormation
 
 ## 🙋‍♂️ User Story
-> *As a user managing personal finances,*  
-> *I want to upload my bills and automatically track expenses by category,*  
-> *So that I can monitor spending patterns and improve budgeting habits.*
+As a user managing personal finances,
+I want to upload my bills and automatically track expenses by category,  
+So that I can monitor spending patterns and improve budgeting habits.
 
 ## 🗺️ Architecture Overview
