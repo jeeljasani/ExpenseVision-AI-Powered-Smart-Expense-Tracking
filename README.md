@@ -71,13 +71,37 @@ Frontend makes API calls to:
 - Get Bills Lambda function
 - Get Full Bill Lambda function
 
-## 📈 Sample Use Flow
-1. **User signs up and logs in**
-2. **User uploads a bill image**
-3. **Lambda stores the image in S3 and metadata in DynamoDB**
-4. **Queue triggers Textract to extract text**
-5. **Extracted data is sent to GPT for category classification**
-6. **Categorized data is stored and displayed on dashboard**
+## 🔄 ExpenseVision Workflow
+
+### 🛡️ User Authentication
+- Users register and log in securely through Lambda functions that verify credentials against user data stored in DynamoDB.
+
+### 📤 Bill Upload
+- Users upload bill images through the React frontend.
+- The Bill Upload Lambda function:
+  - Stores the uploaded image in S3
+  - Records metadata in DynamoDB
+  - Sends a message to the processing queue
+
+### 📄 Data Extraction
+- The Extract Data Lambda:
+  - Picks up messages from the bill-textract2 SQS queue
+  - Uses Amazon Textract to extract text and data from bill images
+  - Stores the extracted data in DynamoDB
+  - Triggers the next processing step via SQS
+
+### 🤖 AI Categorization
+- The Category Detection Lambda:
+  - Reads messages from the category-detection2 SQS queue
+  - Sends the extracted expense data to GPT API for intelligent categorization
+  - Stores categorized data back in DynamoDB
+
+### 📊 Data Retrieval & Visualization
+- The frontend dashboard:
+  - Retrieves categorized expense data through Get Bills and Get Full Bill Lambda functions
+  - Displays bills, categorized expenses, and weekly/monthly summaries
+  - Presents data in an intuitive format for expense monitoring and budget analysis
+
 
 ## 📅 Future Improvements
 - **Multi-user accounts** with role-based access
