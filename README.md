@@ -16,4 +16,17 @@ As a user managing personal finances,
 I want to upload my bills and automatically track expenses by category,  
 So that I can monitor spending patterns and improve budgeting habits.
 
+
+## 🧱 Tech Stack
+| Category              | Services/Tools Used                     |
+|-----------------------|-----------------------------------------|
+| Frontend              | React.js, HTML/CSS                      |
+| Backend               | AWS Lambda, Amazon Textract, GPT API    |
+| Database              | Amazon DynamoDB                         |
+| Storage               | Amazon S3                               |
+| Queueing              | Amazon SQS                              |
+| Infrastructure as Code| AWS CloudFormation                      |
+| Authentication        | Custom login/signup logic (DynamoDB)    |
+| Deployment            | Fully deployed on AWS                   |
+
 ## 🗺️ Architecture Overview
