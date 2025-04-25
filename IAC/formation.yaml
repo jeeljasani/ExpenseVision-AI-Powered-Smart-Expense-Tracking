@@ -1,0 +1,712 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template for Bill Processing Application'
+
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access
+    Type: String
+    Default: a2-keypair
+
+Resources:
+
+  BillImagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: BillImages
+      AttributeDefinitions:
+        - AttributeName: billId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: billId
+          KeyType: HASH
+        - AttributeName: userId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  CategoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: category
+      AttributeDefinitions:
+        - AttributeName: categoryId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: categoryId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  BillMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: BillMetadata
+      AttributeDefinitions:
+        - AttributeName: billId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: billId
+          KeyType: HASH
+        - AttributeName: userId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  UserTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Users
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  BillImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: bill-images-27032003
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Keep existing resources from your template
+  CustomLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: custom-layer
+      Description: Layer containing required dependency
+      Content:
+        S3Bucket: configurationproject
+        S3Key: layer.zip
+      CompatibleRuntimes:
+        - nodejs22.x
+
+  # Lambda register function
+  RegisterLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: RegisterFunction
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: 'arn:aws:iam::540904581563:role/LabRole'
+      Code:
+        S3Bucket: configurationproject
+        S3Key: register.zip
+      Layers:
+        - !Ref CustomLambdaLayer
+
+  # Lambda login function
+  LoginLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: LoginFunction
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: 'arn:aws:iam::540904581563:role/LabRole'
+      Code:
+        S3Bucket: configurationproject
+        S3Key: login.zip
+      Layers:
+        - !Ref CustomLambdaLayer
+
+  # API Gateway REST API
+  AuthApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: AuthApi
+      Description: API for authentication endpoints
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # Resource: /auth
+  AuthResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AuthApi
+      ParentId: !GetAtt AuthApi.RootResourceId
+      PathPart: auth
+
+  # Resource: /auth/register
+  RegisterResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AuthApi
+      ParentId: !Ref AuthResource
+      PathPart: register
+
+  # Method: POST /auth/register
+  RegisterPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref RegisterResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Sub: >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RegisterLambdaFunction.Arn}/invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseTemplates:
+            application/json: ""
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+      MethodResponses:
+      - StatusCode: 200
+        ResponseParameters:
+          method.response.header.Access-Control-Allow-Headers: true
+          method.response.header.Access-Control-Allow-Methods: true
+          method.response.header.Access-Control-Allow-Origin: true
+          method.response.header.Content-Type: true
+        ResponseModels:
+          application/json: "Empty"
+
+  RegisterOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref RegisterResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: ''
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+
+  # Resource: /auth/login
+  LoginResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AuthApi
+      ParentId: !Ref AuthResource
+      PathPart: login
+
+  # Method: POST /auth/login
+  LoginPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref LoginResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Sub: >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LoginLambdaFunction.Arn}/invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseTemplates:
+            application/json: ""
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+      MethodResponses:
+      - StatusCode: 200
+        ResponseParameters:
+          method.response.header.Access-Control-Allow-Headers: true
+          method.response.header.Access-Control-Allow-Methods: true
+          method.response.header.Access-Control-Allow-Origin: true
+          method.response.header.Content-Type: true
+        ResponseModels:
+          application/json: "Empty"
+
+  LoginOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref LoginResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: ''
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+
+  # Lambda Permission to allow API Gateway to invoke it
+  LambdaInvokeRegisterPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RegisterLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AuthApi}/*/POST/auth/register
+
+  # Lambda Permission to allow API Gateway to invoke it
+  LambdaInvokeLoginPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LoginLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AuthApi}/*/POST/auth/login
+
+  # NEW RESOURCES - Bill Processing Application
+  
+  # SQS Queues
+  BillTextractQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: bill-textract2
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600  # 14 days in seconds
+      
+  CategoryDetectionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: category-detection2
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600  # 14 days in seconds
+
+  # Lambda Functions
+  BillUploadFunction1:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: BillUploadFunction1
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: 'arn:aws:iam::540904581563:role/LabRole'
+      Code:
+        S3Bucket: configurationproject
+        S3Key: billuploadfunction.zip
+      Timeout: 30
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref BillTextractQueue
+      Layers:
+        - !Ref CustomLambdaLayer
+
+  # New Lambda for GET /bills
+  GetBillsFunction1:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: GetBillsFunction1
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: 'arn:aws:iam::540904581563:role/LabRole'
+      Code:
+        S3Bucket: configurationproject
+        S3Key: getbillsfunction.zip
+      Timeout: 30
+      Layers:
+        - !Ref CustomLambdaLayer
+
+  # New Lambda for POST /get-bill
+  GetFullBillFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: GetFullBillFunction
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: 'arn:aws:iam::540904581563:role/LabRole'
+      Code:
+        S3Bucket: configurationproject
+        S3Key: getfullbillfunction.zip
+      Timeout: 30
+      Layers:
+        - !Ref CustomLambdaLayer
+
+  ExtractDataFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ExtractDataFunction
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: 'arn:aws:iam::540904581563:role/LabRole'
+      Code:
+        S3Bucket: configurationproject
+        S3Key: extractdata.zip
+      Timeout: 60
+      Environment:
+        Variables:
+          CATEGORY_DETECTION_QUEUE_URL: !Ref CategoryDetectionQueue
+      Layers:
+        - !Ref CustomLambdaLayer
+
+  CategoryDetectionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CategoryDetectionFunction
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: 'arn:aws:iam::540904581563:role/LabRole'
+      Code:
+        S3Bucket: configurationproject
+        S3Key: categorydetection.zip
+      Timeout: 60
+      Layers:
+        - !Ref CustomLambdaLayer
+
+  # SQS Event Source Mappings for Lambda
+  ExtractDataEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt BillTextractQueue.Arn
+      FunctionName: !GetAtt ExtractDataFunction.Arn
+
+  CategoryDetectionEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt CategoryDetectionQueue.Arn
+      FunctionName: !GetAtt CategoryDetectionFunction.Arn
+
+  # Bills Resource in API Gateway
+  BillsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AuthApi
+      ParentId: !GetAtt AuthApi.RootResourceId
+      PathPart: bills
+
+  # Method: POST /bills
+  BillsPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref BillsResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Sub: >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BillUploadFunction1.Arn}/invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseTemplates:
+            application/json: ""
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+      MethodResponses:
+      - StatusCode: 200
+        ResponseParameters:
+          method.response.header.Access-Control-Allow-Headers: true
+          method.response.header.Access-Control-Allow-Methods: true
+          method.response.header.Access-Control-Allow-Origin: true
+          method.response.header.Content-Type: true
+        ResponseModels:
+          application/json: "Empty"
+
+  # Method: GET /bills - Updated to use GetBillsFunction1
+  BillsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref BillsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Sub: >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetBillsFunction1.Arn}/invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseTemplates:
+            application/json: ""
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+      MethodResponses:
+      - StatusCode: 200
+        ResponseParameters:
+          method.response.header.Access-Control-Allow-Headers: true
+          method.response.header.Access-Control-Allow-Methods: true
+          method.response.header.Access-Control-Allow-Origin: true
+          method.response.header.Content-Type: true
+        ResponseModels:
+          application/json: "Empty"
+
+  # Method: OPTIONS /bills
+  BillsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref BillsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: ''
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+
+  # New Resource: /get-bill
+  GetBillResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AuthApi
+      ParentId: !GetAtt AuthApi.RootResourceId
+      PathPart: get-bill
+
+  # Method: POST /get-bill
+  GetBillPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref GetBillResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Sub: >-
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetFullBillFunction.Arn}/invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseTemplates:
+            application/json: ""
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+      MethodResponses:
+      - StatusCode: 200
+        ResponseParameters:
+          method.response.header.Access-Control-Allow-Headers: true
+          method.response.header.Access-Control-Allow-Methods: true
+          method.response.header.Access-Control-Allow-Origin: true
+          method.response.header.Content-Type: true
+        ResponseModels:
+          application/json: "Empty"
+
+  # Method: OPTIONS /get-bill
+  GetBillOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AuthApi
+      ResourceId: !Ref GetBillResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: ''
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'*'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+
+  # Lambda Permissions for API Gateway
+  LambdaInvokeBillsPostPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BillUploadFunction1
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AuthApi}/*/POST/bills
+
+  LambdaInvokeBillsGetPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GetBillsFunction1
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AuthApi}/*/GET/bills
+
+  # New Lambda Permission for GET-BILL POST
+  LambdaInvokeGetBillPostPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GetFullBillFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AuthApi}/*/POST/get-bill
+
+  # API Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - RegisterPostMethod
+      - RegisterOptionsMethod
+      - LoginPostMethod
+      - LoginOptionsMethod
+      - BillsPostMethod
+      - BillsGetMethod
+      - BillsOptionsMethod
+      - GetBillPostMethod
+      - GetBillOptionsMethod
+    Properties:
+      RestApiId: !Ref AuthApi
+      StageName: prod
+
+  # VPC
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyDockerVPC
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
+
+  # Route Table
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+
+  Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  # Security Group
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow all traffic
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # EC2 Instance with Docker
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      ImageId: ami-00a929b66ed6e0de6
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Update the system and install Docker
+          sudo yum update -y
+          sudo yum install -y docker
+          sudo service docker start
+
+          # Ensure the Docker service starts on boot
+          sudo systemctl enable docker
+
+          # Add the ec2-user to the docker group to avoid using 'sudo' for Docker commands
+          sudo usermod -a -G docker ec2-user
+
+          # Pull and run a Docker image from Docker Hub
+          sudo docker pull jeel2772/frontend_bill:latest
+          sudo docker run -d --name instance-2 -p 80:80 jeel2772/frontend_bill:latest
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL for prod stage"
+    Value: !Sub "https://${AuthApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
+  BillTextractQueueURL:
+    Description: "URL of the Bill Textract SQS Queue"
+    Value: !Ref BillTextractQueue
+  CategoryDetectionQueueURL:
+    Description: "URL of the Category Detection SQS Queue"
+    Value: !Ref CategoryDetectionQueue
+  InstancePublicIP:
+    Description: Public IP of the EC2 instance
+    Value: !GetAtt EC2Instance.PublicIp
+
+  WebAppURL:
+    Description: URL to access the Docker app
+    Value: !Sub http://${EC2Instance.PublicDnsName}
